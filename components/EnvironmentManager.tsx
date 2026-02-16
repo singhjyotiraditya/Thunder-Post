@@ -122,6 +122,7 @@ export const EnvironmentManager: React.FC<EnvironmentManagerProps> = ({
                   <KeyValueEditor 
                     items={selectedEnv.variables}
                     onChange={handleUpdateVariables}
+                    variables={selectedEnv.variables}
                   />
                 </div>
               </div>

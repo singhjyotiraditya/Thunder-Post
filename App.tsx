@@ -82,11 +82,16 @@ const App: React.FC = () => {
       const saved = localStorage.getItem(STORAGE_KEYS.LAYOUT);
       return saved ? JSON.parse(saved).panelPercent || 50 : 50;
   });
+  const [layoutMode, setLayoutMode] = useState<'horizontal' | 'vertical'>(() => {
+      const saved = localStorage.getItem(STORAGE_KEYS.LAYOUT);
+      return saved ? JSON.parse(saved).mode || 'horizontal' : 'horizontal';
+  });
 
   // Resizing Refs
   const isResizingSidebar = useRef(false);
   const isResizingPanel = useRef(false);
   const appContainerRef = useRef<HTMLDivElement>(null);
+  const panelsContainerRef = useRef<HTMLDivElement>(null);
 
   const [history, setHistory] = useState<HistoryItem[]>(() => {
     try {
@@ -139,8 +144,12 @@ const App: React.FC = () => {
   
   // Save Layout
   useEffect(() => {
-      localStorage.setItem(STORAGE_KEYS.LAYOUT, JSON.stringify({ sidebar: sidebarWidth, panelPercent: requestPanelPercent }));
-  }, [sidebarWidth, requestPanelPercent]);
+      localStorage.setItem(STORAGE_KEYS.LAYOUT, JSON.stringify({ 
+          sidebar: sidebarWidth, 
+          panelPercent: requestPanelPercent,
+          mode: layoutMode
+      }));
+  }, [sidebarWidth, requestPanelPercent, layoutMode]);
 
   // --- RESIZE HANDLERS ---
   useEffect(() => {
@@ -150,13 +159,19 @@ const App: React.FC = () => {
             const newWidth = Math.max(200, Math.min(600, e.clientX));
             setSidebarWidth(newWidth);
         }
-        if (isResizingPanel.current && appContainerRef.current) {
+        if (isResizingPanel.current && panelsContainerRef.current) {
             e.preventDefault();
-            // Calculate relative to the main content area (Total width - Sidebar)
-            const mainContentWidth = appContainerRef.current.clientWidth - sidebarWidth;
-            const relativeX = e.clientX - sidebarWidth;
-            const percent = (relativeX / mainContentWidth) * 100;
-            setRequestPanelPercent(Math.max(20, Math.min(80, percent)));
+            const rect = panelsContainerRef.current.getBoundingClientRect();
+            
+            if (layoutMode === 'horizontal') {
+                const relativeX = e.clientX - rect.left;
+                const percent = (relativeX / rect.width) * 100;
+                setRequestPanelPercent(Math.max(20, Math.min(80, percent)));
+            } else {
+                const relativeY = e.clientY - rect.top;
+                const percent = (relativeY / rect.height) * 100;
+                setRequestPanelPercent(Math.max(20, Math.min(80, percent)));
+            }
         }
     };
 
@@ -174,11 +189,12 @@ const App: React.FC = () => {
         window.removeEventListener('mousemove', handleMouseMove);
         window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [sidebarWidth]);
+  }, [sidebarWidth, layoutMode]);
 
 
   // --- HANDLERS ---
   const activeRequest = requests[activeRequestId] || requests[Object.keys(requests)[0]];
+  const activeEnvironment = environments.find(e => e.id === activeEnvironmentId);
 
   useEffect(() => {
     if (activeRequestId && !openRequestIds.includes(activeRequestId) && requests[activeRequestId]) {
@@ -450,6 +466,10 @@ const App: React.FC = () => {
 
   const openTabs = openRequestIds.map(id => requests[id]).filter(Boolean);
 
+  const toggleLayout = () => {
+      setLayoutMode(prev => prev === 'horizontal' ? 'vertical' : 'horizontal');
+  };
+
   return (
     <div className="flex w-full h-screen overflow-hidden text-base" ref={appContainerRef}>
       <Sidebar 
@@ -482,24 +502,40 @@ const App: React.FC = () => {
             onClose={handleCloseTab}
             onNew={handleNewRequest}
         />
-        <div className="flex-1 flex overflow-hidden relative">
+        <div 
+            ref={panelsContainerRef}
+            className={`flex-1 flex overflow-hidden relative ${layoutMode === 'vertical' ? 'flex-col' : 'flex-row'}`}
+        >
           <RequestPanel 
-             style={{ width: `${requestPanelPercent}%` }}
+             style={layoutMode === 'horizontal' ? { width: `${requestPanelPercent}%` } : { height: `${requestPanelPercent}%` }}
              request={activeRequest} 
              onUpdateRequest={handleUpdateRequest}
              onSend={() => executeRequest()}
              onSave={() => setIsSaveDialogOpen(true)}
              isLoading={isLoading}
+             environmentVariables={activeEnvironment ? activeEnvironment.variables.filter(v => v.enabled && v.key) : []}
           />
           
           {/* Panel Resizer */}
           <div 
-            className="w-1 cursor-col-resize hover:bg-primary/50 bg-border transition-colors z-10"
-            onMouseDown={() => { isResizingPanel.current = true; document.body.style.cursor = 'col-resize'; }}
+            className={`transition-colors z-10 
+                ${layoutMode === 'horizontal' 
+                    ? 'w-1 cursor-col-resize hover:bg-primary/50 bg-border h-full' 
+                    : 'h-1 cursor-row-resize hover:bg-primary/50 bg-border w-full'
+                }`}
+            onMouseDown={() => { 
+                isResizingPanel.current = true; 
+                document.body.style.cursor = layoutMode === 'horizontal' ? 'col-resize' : 'row-resize'; 
+            }}
           />
 
-          <div style={{ flex: 1, minWidth: 0 }}>
-             <ResponsePanel response={response} isLoading={isLoading} />
+          <div style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
+             <ResponsePanel 
+                response={response} 
+                isLoading={isLoading} 
+                layoutMode={layoutMode}
+                onToggleLayout={toggleLayout}
+             />
           </div>
         </div>
       </main>

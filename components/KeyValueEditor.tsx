@@ -1,13 +1,15 @@
 import React from 'react';
 import { KeyValueItem } from '../types';
 import { Trash2, CheckSquare, Square } from 'lucide-react';
+import { SuggestionInput } from './SuggestionInput';
 
 interface KeyValueEditorProps {
   items: KeyValueItem[];
   onChange: (items: KeyValueItem[]) => void;
+  variables: KeyValueItem[];
 }
 
-export const KeyValueEditor: React.FC<KeyValueEditorProps> = ({ items, onChange }) => {
+export const KeyValueEditor: React.FC<KeyValueEditorProps> = ({ items, onChange, variables }) => {
   const handleChange = (id: string, field: 'key' | 'value', text: string) => {
     const newItems = items.map(item => item.id === id ? { ...item, [field]: text } : item);
     // Add new empty row if editing the last one
@@ -41,19 +43,19 @@ export const KeyValueEditor: React.FC<KeyValueEditorProps> = ({ items, onChange 
             <button onClick={() => handleToggle(item.id)} className="text-muted hover:text-white transition-colors">
               {item.enabled ? <CheckSquare size={16} /> : <Square size={16} />}
             </button>
-            <input
-              type="text"
+            <SuggestionInput
+              variables={variables}
               placeholder="Key"
-              className="bg-transparent border-b border-transparent focus:border-border outline-none py-1.5 placeholder-neutral-700 transition-colors text-white"
+              className="bg-transparent border-b border-transparent focus:border-border outline-none py-1.5 placeholder-neutral-700 transition-colors text-white w-full"
               value={item.key}
-              onChange={(e) => handleChange(item.id, 'key', e.target.value)}
+              onChange={(val) => handleChange(item.id, 'key', val)}
             />
-            <input
-              type="text"
+            <SuggestionInput
+              variables={variables}
               placeholder="Value"
-              className="bg-transparent border-b border-transparent focus:border-border outline-none py-1.5 placeholder-neutral-700 transition-colors text-white"
+              className="bg-transparent border-b border-transparent focus:border-border outline-none py-1.5 placeholder-neutral-700 transition-colors text-white w-full"
               value={item.value}
-              onChange={(e) => handleChange(item.id, 'value', e.target.value)}
+              onChange={(val) => handleChange(item.id, 'value', val)}
             />
             <button 
               onClick={() => handleDelete(item.id)}

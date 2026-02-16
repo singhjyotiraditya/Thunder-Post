@@ -1,13 +1,15 @@
 import React, { useState, useMemo } from 'react';
 import { ApiResponse } from '../types';
-import { Clock, Database, Copy, Check, Terminal, Table as TableIcon, Code, List } from 'lucide-react';
+import { Clock, Database, Copy, Check, Terminal, Table as TableIcon, Code, List, Columns, Rows } from 'lucide-react';
 
 interface ResponsePanelProps {
   response: ApiResponse | null;
   isLoading: boolean;
+  layoutMode?: 'horizontal' | 'vertical';
+  onToggleLayout?: () => void;
 }
 
-export const ResponsePanel: React.FC<ResponsePanelProps> = ({ response, isLoading }) => {
+export const ResponsePanel: React.FC<ResponsePanelProps> = ({ response, isLoading, layoutMode, onToggleLayout }) => {
   const [copied, setCopied] = useState(false);
   const [activeTab, setActiveTab] = useState<'body' | 'table' | 'headers'>('body');
 
@@ -37,22 +39,51 @@ export const ResponsePanel: React.FC<ResponsePanelProps> = ({ response, isLoadin
     return null;
   }, [response]);
 
+  const LayoutIcon = layoutMode === 'horizontal' ? Rows : Columns;
+
   if (isLoading) {
     return (
-      <div className="h-full flex flex-col items-center justify-center text-muted gap-6 bg-surface/50">
-        <div className="w-12 h-12 border-2 border-border border-t-white rounded-full animate-spin"></div>
-        <p className="animate-pulse font-medium tracking-wide">PROCESSING REQUEST...</p>
+      <div className="h-full flex flex-col bg-surface border-l border-border relative">
+         {/* Simple header during loading for consistency */}
+         <div className="p-2 border-b border-border flex justify-end">
+            {onToggleLayout && (
+                <button 
+                  onClick={onToggleLayout} 
+                  className="p-2 text-muted hover:text-white rounded hover:bg-white/10 transition-colors"
+                  title="Toggle Layout"
+                >
+                   <LayoutIcon size={18} />
+                </button>
+             )}
+         </div>
+        <div className="flex-1 flex flex-col items-center justify-center text-muted gap-6 bg-surface/50">
+           <div className="w-12 h-12 border-2 border-border border-t-white rounded-full animate-spin"></div>
+           <p className="animate-pulse font-medium tracking-wide">PROCESSING REQUEST...</p>
+        </div>
       </div>
     );
   }
 
   if (!response) {
     return (
-      <div className="h-full flex flex-col items-center justify-center text-muted gap-4 opacity-40 bg-surface/30">
-        <div className="p-6 bg-surface rounded-full border border-border">
-            <Terminal size={48} />
-        </div>
-        <p className="font-medium tracking-wide">READY FOR REQUEST</p>
+      <div className="h-full flex flex-col bg-surface border-l border-border relative">
+         <div className="p-2 border-b border-border flex justify-end">
+            {onToggleLayout && (
+                <button 
+                  onClick={onToggleLayout} 
+                  className="p-2 text-muted hover:text-white rounded hover:bg-white/10 transition-colors"
+                  title="Toggle Layout"
+                >
+                   <LayoutIcon size={18} />
+                </button>
+             )}
+         </div>
+         <div className="flex-1 flex flex-col items-center justify-center text-muted gap-4 opacity-40 bg-surface/30">
+            <div className="p-6 bg-surface rounded-full border border-border">
+                <Terminal size={48} />
+            </div>
+            <p className="font-medium tracking-wide">READY FOR REQUEST</p>
+         </div>
       </div>
     );
   }
@@ -63,7 +94,7 @@ export const ResponsePanel: React.FC<ResponsePanelProps> = ({ response, isLoadin
   return (
     <div className="flex flex-col h-full bg-surface border-l border-border">
       {/* Response Meta */}
-      <div className="p-4 border-b border-border flex items-center justify-between bg-background">
+      <div className="p-4 border-b border-border flex items-center justify-between bg-background shrink-0">
         <div className="flex items-center gap-6 text-sm">
           <span className={`font-bold ${statusColor} flex items-center gap-2 bg-surface px-3 py-1 rounded border border-border`}>
              <span className={`w-2 h-2 rounded-full ${response.status < 300 ? 'bg-green-500' : 'bg-red-500'}`}></span>
@@ -80,6 +111,15 @@ export const ResponsePanel: React.FC<ResponsePanelProps> = ({ response, isLoadin
         </div>
         
         <div className="flex gap-2">
+           {onToggleLayout && (
+               <button 
+                 onClick={onToggleLayout} 
+                 className="p-2 text-muted hover:text-white rounded hover:bg-white/10 transition-colors"
+                 title="Toggle Layout"
+               >
+                  <LayoutIcon size={18} />
+               </button>
+            )}
            <button onClick={handleCopy} className="p-2 text-muted hover:text-white rounded hover:bg-white/10 transition-colors" title="Copy JSON">
               {copied ? <Check size={18} className="text-green-500" /> : <Copy size={18} />}
            </button>
@@ -87,7 +127,7 @@ export const ResponsePanel: React.FC<ResponsePanelProps> = ({ response, isLoadin
       </div>
 
       {/* Response Tabs */}
-      <div className="flex border-b border-border px-5 gap-6 text-sm bg-background">
+      <div className="flex border-b border-border px-5 gap-6 text-sm bg-background shrink-0">
           <button 
              onClick={() => setActiveTab('body')}
              className={`py-3 font-semibold border-b-2 transition-colors tracking-wide flex items-center gap-2 ${activeTab === 'body' ? 'border-white text-white' : 'border-transparent text-muted hover:text-white'}`}

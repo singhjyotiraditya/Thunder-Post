@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { ApiRequest, HttpMethod, TabType, AuthType } from '../types';
+import { ApiRequest, HttpMethod, TabType, AuthType, KeyValueItem } from '../types';
 import { KeyValueEditor } from './KeyValueEditor';
-import { Play, Save, ChevronDown, Lock, Eye, EyeOff } from 'lucide-react';
+import { Play, Save, ChevronDown, Lock, Eye, EyeOff, Code, Check } from 'lucide-react';
 import { CustomDropdown } from './CustomDropdown';
+import { SuggestionInput } from './SuggestionInput';
 
 interface RequestPanelProps {
   request: ApiRequest;
@@ -11,13 +12,15 @@ interface RequestPanelProps {
   onSave: () => void;
   isLoading: boolean;
   style?: React.CSSProperties;
+  environmentVariables: KeyValueItem[];
 }
 
-export const RequestPanel: React.FC<RequestPanelProps> = ({ request, onUpdateRequest, onSend, onSave, isLoading, style }) => {
+export const RequestPanel: React.FC<RequestPanelProps> = ({ request, onUpdateRequest, onSend, onSave, isLoading, style, environmentVariables }) => {
   const [activeTab, setActiveTab] = useState<TabType>('params');
   const [showPassword, setShowPassword] = useState(false);
   const [isEditingName, setIsEditingName] = useState(false);
   const [tempName, setTempName] = useState(request.name);
+  const [copiedCurl, setCopiedCurl] = useState(false);
 
   useEffect(() => {
     setTempName(request.name);
@@ -41,6 +44,59 @@ export const RequestPanel: React.FC<RequestPanelProps> = ({ request, onUpdateReq
           setTempName(request.name);
       }
       setIsEditingName(false);
+  };
+
+  const handleCopyCurl = () => {
+    let fullUrl = request.url;
+    
+    // Append query params
+    const queryParams = request.params
+        .filter(p => p.enabled && p.key)
+        .map(p => `${encodeURIComponent(p.key)}=${encodeURIComponent(p.value)}`);
+    
+    if (request.auth.type === 'apikey' && request.auth.apiKeyLocation === 'query' && request.auth.apiKeyKey) {
+        queryParams.push(`${encodeURIComponent(request.auth.apiKeyKey)}=${encodeURIComponent(request.auth.apiKeyValue)}`);
+    }
+
+    if (queryParams.length > 0) {
+        const separator = fullUrl.includes('?') ? '&' : '?';
+        fullUrl += separator + queryParams.join('&');
+    }
+
+    let curl = `curl -X ${request.method} "${fullUrl}"`;
+
+    // Headers
+    request.headers.forEach(h => {
+        if (h.enabled && h.key) {
+            curl += ` \\\n  -H "${h.key}: ${h.value}"`;
+        }
+    });
+
+    // Auth Headers
+    if (request.auth.type === 'bearer' && request.auth.bearerToken) {
+        curl += ` \\\n  -H "Authorization: Bearer ${request.auth.bearerToken}"`;
+    } else if (request.auth.type === 'basic') {
+        const auth = btoa(`${request.auth.basicUsername}:${request.auth.basicPassword}`);
+        curl += ` \\\n  -H "Authorization: Basic ${auth}"`;
+    } else if (request.auth.type === 'apikey' && request.auth.apiKeyLocation === 'header' && request.auth.apiKeyKey) {
+        curl += ` \\\n  -H "${request.auth.apiKeyKey}: ${request.auth.apiKeyValue}"`;
+    }
+    
+    // Explicit Content-Type if JSON and not present
+    if (request.bodyType === 'json' && !request.headers.some(h => h.key.toLowerCase() === 'content-type')) {
+         curl += ` \\\n  -H "Content-Type: application/json"`;
+    }
+
+    // Body
+    if (request.method !== 'GET' && request.method !== 'DELETE' && request.bodyContent) {
+        // Simple escaping for single quotes in body for shell
+        const escapedBody = request.bodyContent.replace(/'/g, "'\\''");
+        curl += ` \\\n  -d '${escapedBody}'`;
+    }
+
+    navigator.clipboard.writeText(curl);
+    setCopiedCurl(true);
+    setTimeout(() => setCopiedCurl(false), 2000);
   };
 
   const tabs: { id: TabType; label: string; count?: number }[] = [
@@ -103,13 +159,23 @@ export const RequestPanel: React.FC<RequestPanelProps> = ({ request, onUpdateReq
              )}
              {request.collectionId && <span className="text-xs text-muted px-2 py-0.5 border border-border rounded shrink-0">Saved</span>}
            </div>
-           <button 
-              onClick={onSave}
-              className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-muted hover:text-white transition-colors border border-transparent hover:border-border rounded shrink-0"
-           >
-              <Save size={16} />
-              Save
-           </button>
+           <div className="flex items-center gap-2">
+                <button 
+                  onClick={handleCopyCurl}
+                  className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-muted hover:text-white transition-colors border border-transparent hover:border-border rounded shrink-0"
+                  title="Copy as cURL"
+                >
+                   {copiedCurl ? <Check size={16} className="text-green-500" /> : <Code size={16} />}
+                   <span className="hidden sm:inline">cURL</span>
+                </button>
+                <button 
+                    onClick={onSave}
+                    className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-muted hover:text-white transition-colors border border-transparent hover:border-border rounded shrink-0"
+                >
+                    <Save size={16} />
+                    Save
+                </button>
+           </div>
         </div>
 
         <div className="flex gap-2 items-stretch h-12">
@@ -123,12 +189,13 @@ export const RequestPanel: React.FC<RequestPanelProps> = ({ request, onUpdateReq
               />
           </div>
           
-          <input
-            type="text"
+          <SuggestionInput
             value={request.url}
-            onChange={(e) => updateField('url', e.target.value)}
+            onChange={(val) => updateField('url', val)}
+            variables={environmentVariables}
             placeholder="https://api.example.com/v1/resource"
-            className="flex-1 bg-background border-y border-r border-border px-4 text-base outline-none focus:border-white text-white placeholder-neutral-700 font-mono"
+            className="w-full h-full bg-background border-y border-r border-border px-4 text-base outline-none focus:border-white text-white placeholder-neutral-700 font-mono"
+            wrapperClassName="flex-1"
           />
           
           <button
@@ -169,6 +236,7 @@ export const RequestPanel: React.FC<RequestPanelProps> = ({ request, onUpdateReq
           <KeyValueEditor 
             items={request.params} 
             onChange={(items) => updateField('params', items)} 
+            variables={environmentVariables}
           />
         )}
         
@@ -176,6 +244,7 @@ export const RequestPanel: React.FC<RequestPanelProps> = ({ request, onUpdateReq
           <KeyValueEditor 
             items={request.headers} 
             onChange={(items) => updateField('headers', items)} 
+            variables={environmentVariables}
           />
         )}
         
@@ -203,12 +272,14 @@ export const RequestPanel: React.FC<RequestPanelProps> = ({ request, onUpdateReq
                 Text
               </label>
             </div>
-            <textarea
+            <SuggestionInput
+              textarea
               value={request.bodyContent}
-              onChange={(e) => updateField('bodyContent', e.target.value)}
-              className="flex-1 w-full bg-surface border border-border rounded p-4 font-mono text-sm text-white outline-none focus:border-white resize-none leading-relaxed"
+              onChange={(val) => updateField('bodyContent', val)}
+              variables={environmentVariables}
+              className="w-full h-full bg-surface border border-border rounded p-4 font-mono text-sm text-white outline-none focus:border-white resize-none leading-relaxed"
+              wrapperClassName="flex-1"
               placeholder={request.bodyType === 'json' ? '{\n  "key": "value"\n}' : 'Raw text content'}
-              spellCheck={false}
             />
           </div>
         )}
@@ -240,14 +311,15 @@ export const RequestPanel: React.FC<RequestPanelProps> = ({ request, onUpdateReq
                      <div className="flex flex-col gap-2">
                          <label className="text-xs font-bold text-muted uppercase tracking-wider">Token</label>
                          <div className="relative">
-                            <input 
+                            <SuggestionInput 
                                 type={showPassword ? "text" : "password"}
                                 value={request.auth.bearerToken}
-                                onChange={(e) => updateAuth('bearerToken', e.target.value)}
+                                onChange={(val) => updateAuth('bearerToken', val)}
+                                variables={environmentVariables}
                                 className="w-full bg-background border border-border px-4 py-3 text-white focus:border-white outline-none"
                                 placeholder="Token"
                             />
-                            <button onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-white">
+                            <button onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-white z-10">
                                 {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                             </button>
                          </div>
@@ -259,10 +331,10 @@ export const RequestPanel: React.FC<RequestPanelProps> = ({ request, onUpdateReq
                  <div className="space-y-4 p-6 bg-surface border border-border rounded">
                      <div className="flex flex-col gap-2">
                          <label className="text-xs font-bold text-muted uppercase tracking-wider">Username</label>
-                         <input 
-                            type="text"
+                         <SuggestionInput
                             value={request.auth.basicUsername}
-                            onChange={(e) => updateAuth('basicUsername', e.target.value)}
+                            onChange={(val) => updateAuth('basicUsername', val)}
+                            variables={environmentVariables}
                             className="w-full bg-background border border-border px-4 py-3 text-white focus:border-white outline-none"
                             placeholder="Username"
                         />
@@ -270,14 +342,15 @@ export const RequestPanel: React.FC<RequestPanelProps> = ({ request, onUpdateReq
                      <div className="flex flex-col gap-2">
                          <label className="text-xs font-bold text-muted uppercase tracking-wider">Password</label>
                          <div className="relative">
-                            <input 
+                            <SuggestionInput 
                                 type={showPassword ? "text" : "password"}
                                 value={request.auth.basicPassword}
-                                onChange={(e) => updateAuth('basicPassword', e.target.value)}
+                                onChange={(val) => updateAuth('basicPassword', val)}
+                                variables={environmentVariables}
                                 className="w-full bg-background border border-border px-4 py-3 text-white focus:border-white outline-none"
                                 placeholder="Password"
                             />
-                            <button onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-white">
+                            <button onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-white z-10">
                                 {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                             </button>
                          </div>
@@ -290,10 +363,10 @@ export const RequestPanel: React.FC<RequestPanelProps> = ({ request, onUpdateReq
                      <div className="grid grid-cols-2 gap-4">
                         <div className="flex flex-col gap-2">
                             <label className="text-xs font-bold text-muted uppercase tracking-wider">Key</label>
-                            <input 
-                                type="text"
+                            <SuggestionInput 
                                 value={request.auth.apiKeyKey}
-                                onChange={(e) => updateAuth('apiKeyKey', e.target.value)}
+                                onChange={(val) => updateAuth('apiKeyKey', val)}
+                                variables={environmentVariables}
                                 className="w-full bg-background border border-border px-4 py-3 text-white focus:border-white outline-none"
                                 placeholder="Key (e.g. X-API-KEY)"
                             />
@@ -301,14 +374,15 @@ export const RequestPanel: React.FC<RequestPanelProps> = ({ request, onUpdateReq
                         <div className="flex flex-col gap-2">
                             <label className="text-xs font-bold text-muted uppercase tracking-wider">Value</label>
                             <div className="relative">
-                                <input 
+                                <SuggestionInput 
                                     type={showPassword ? "text" : "password"}
                                     value={request.auth.apiKeyValue}
-                                    onChange={(e) => updateAuth('apiKeyValue', e.target.value)}
+                                    onChange={(val) => updateAuth('apiKeyValue', val)}
+                                    variables={environmentVariables}
                                     className="w-full bg-background border border-border px-4 py-3 text-white focus:border-white outline-none"
                                     placeholder="Value"
                                 />
-                                <button onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-white">
+                                <button onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-white z-10">
                                     {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                                 </button>
                             </div>
