@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { HistoryItem, HttpMethod, Collection, ApiRequest, Environment } from '../types';
-import { Activity, Folder, FolderOpen, ChevronRight, Settings, Upload, Box, ChevronDown } from 'lucide-react';
+import { Activity, Folder, FolderOpen, ChevronRight, Settings, Upload, Box, ChevronDown, Search, X } from 'lucide-react';
 import { CustomDropdown } from './CustomDropdown';
 
 interface SidebarProps {
@@ -46,11 +46,41 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenImport
 }) => {
   const [activeTab, setActiveTab] = useState<'collections' | 'history'>('collections');
+  const [searchQuery, setSearchQuery] = useState('');
 
   const envOptions = [
       { label: 'No Environment', value: '' },
       ...environments.map(env => ({ label: env.name, value: env.id }))
   ];
+
+  // Filter collections based on search query
+  const filteredCollections = useMemo(() => {
+    if (!searchQuery.trim()) return collections;
+
+    const lowerQuery = searchQuery.toLowerCase();
+    
+    // Return collections that have matching requests OR matching collection name
+    // If collection matches, show all. If request matches, show only matching requests.
+    return collections.map(col => {
+      const nameMatches = col.name.toLowerCase().includes(lowerQuery);
+      const matchingRequests = col.requests.filter(req => 
+        req.name.toLowerCase().includes(lowerQuery) || 
+        req.url.toLowerCase().includes(lowerQuery)
+      );
+
+      if (nameMatches) {
+          // If collection name matches, show all requests
+          return { ...col, isOpen: true }; 
+      }
+
+      if (matchingRequests.length > 0) {
+          // If only requests match, show filtered requests
+          return { ...col, requests: matchingRequests, isOpen: true };
+      }
+
+      return null;
+    }).filter(Boolean) as Collection[];
+  }, [collections, searchQuery]);
 
   return (
     <div 
@@ -121,6 +151,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </button>
       </div>
 
+      {/* Search Bar (Only for Collections) */}
+      {activeTab === 'collections' && (
+        <div className="p-2 border-b border-border">
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+            <input 
+              type="text" 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search..." 
+              className="w-full bg-background border border-border rounded-sm py-1.5 pl-8 pr-8 text-xs text-white placeholder-muted outline-none focus:border-white transition-colors"
+            />
+            {searchQuery && (
+              <button 
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-white"
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Content */}
       <div className="flex-1 overflow-y-auto custom-scrollbar">
         {activeTab === 'collections' && (
@@ -132,7 +186,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <p className="text-muted text-xs mt-1">Save a request to create one.</p>
               </div>
             )}
-            {collections.map((collection) => (
+            
+            {filteredCollections.length === 0 && collections.length > 0 && (
+                 <div className="p-8 text-center text-muted text-sm">
+                    No results found for "{searchQuery}"
+                 </div>
+            )}
+
+            {filteredCollections.map((collection) => (
               <div key={collection.id} className="mb-1">
                 <button
                   onClick={() => onToggleCollection(collection.id)}
@@ -205,7 +266,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <Box size={14} />
             <span>Workspace</span>
          </div>
-         <span className="opacity-50">v1.2.0</span>
+         <span className="opacity-50">v1.3.0</span>
       </div>
     </div>
   );

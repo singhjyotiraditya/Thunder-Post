@@ -7,7 +7,7 @@ import { EnvironmentManager } from './components/EnvironmentManager';
 import { ImportDialog } from './components/ImportDialog';
 import { TabBar } from './components/TabBar';
 import { ApiRequest, ApiResponse, HistoryItem, HttpMethod, Collection, Environment, KeyValueItem, AuthConfig } from './types';
-import { parsePostmanCollection, parseCurl } from './utils/importers';
+import { parsePostmanCollection, parseCurl, parseSwagger } from './utils/importers';
 
 const DEFAULT_AUTH: AuthConfig = {
   type: 'none',
@@ -343,6 +343,25 @@ const App: React.FC = () => {
       }
   };
 
+  const handleImportSwagger = (json: any, url?: string) => {
+      try {
+          const newCollections = parseSwagger(json, url);
+          setCollections(prev => [...prev, ...newCollections]);
+          
+          const newRequestsMap = { ...requests };
+          newCollections.forEach(col => {
+              col.requests.forEach(req => {
+                  newRequestsMap[req.id] = req;
+              });
+          });
+          setRequests(newRequestsMap);
+          
+      } catch (e) {
+          console.error("Failed to parse Swagger", e);
+          alert("Failed to parse Swagger JSON");
+      }
+  };
+
   const substituteVariables = (text: string): string => {
       if (!activeEnvironmentId || !text) return text;
       const env = environments.find(e => e.id === activeEnvironmentId);
@@ -560,6 +579,7 @@ const App: React.FC = () => {
         onClose={() => setIsImportDialogOpen(false)}
         onImportFile={handleImportFile}
         onImportCurl={handleImportCurl}
+        onImportSwagger={handleImportSwagger}
       />
     </div>
   );
