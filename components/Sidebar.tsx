@@ -1,20 +1,23 @@
 import React, { useState } from 'react';
-import { HistoryItem, HttpMethod, Collection, ApiRequest } from '../types';
-import { History, Plus, Activity, Box, Folder, FolderOpen, ChevronRight, ChevronDown, MoreHorizontal } from 'lucide-react';
+import { HistoryItem, HttpMethod, Collection, ApiRequest, Environment } from '../types';
+import { History, Plus, Activity, Box, Folder, FolderOpen, ChevronRight, ChevronDown, MoreHorizontal, Settings, Database, Upload } from 'lucide-react';
 
 interface SidebarProps {
   history: HistoryItem[];
   collections: Collection[];
   activeId: string;
+  environments: Environment[];
+  activeEnvironmentId: string | null;
   onSelectHistory: (id: string) => void;
   onSelectCollectionRequest: (req: ApiRequest) => void;
   onNewRequest: () => void;
   onToggleCollection: (id: string) => void;
+  onSelectEnvironment: (id: string | null) => void;
+  onOpenEnvironmentManager: () => void;
+  onOpenImport: () => void;
 }
 
 const MethodBadge: React.FC<{ method: HttpMethod }> = ({ method }) => {
-  // Keeping colors simple but distinguishable in monochrome theme using brightness or subtle hues if needed, 
-  // but let's try a very clean text-only approach or minimal color.
   const colors = {
     [HttpMethod.GET]: 'text-green-500',
     [HttpMethod.POST]: 'text-yellow-500',
@@ -29,28 +32,68 @@ export const Sidebar: React.FC<SidebarProps> = ({
   history, 
   collections, 
   activeId, 
+  environments,
+  activeEnvironmentId,
   onSelectHistory, 
   onSelectCollectionRequest, 
   onNewRequest,
-  onToggleCollection
+  onToggleCollection,
+  onSelectEnvironment,
+  onOpenEnvironmentManager,
+  onOpenImport
 }) => {
   const [activeTab, setActiveTab] = useState<'collections' | 'history'>('collections');
 
   return (
     <div className="w-72 h-full bg-surface border-r border-border flex flex-col">
       {/* Header */}
-      <div className="p-5 border-b border-border flex items-center justify-between">
-        <div className="flex items-center gap-3 text-white font-bold text-xl tracking-tight">
-          <Activity size={24} className="text-white" />
-          <span>ThunderPost</span>
+      <div className="p-5 border-b border-border flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3 text-white font-bold text-xl tracking-tight">
+            <Activity size={24} className="text-white" />
+            <span>ThunderPost</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <button 
+                onClick={onOpenImport}
+                className="p-2 hover:bg-white text-white hover:text-black transition-all rounded-sm"
+                title="Import (Postman / cURL)"
+            >
+                <Upload size={20} />
+            </button>
+            <button 
+                onClick={onNewRequest}
+                className="p-2 hover:bg-white text-white hover:text-black transition-all rounded-sm"
+                title="New Request"
+            >
+                <Plus size={20} />
+            </button>
+          </div>
         </div>
-        <button 
-          onClick={onNewRequest}
-          className="p-2 hover:bg-white text-white hover:text-black transition-all rounded-sm"
-          title="New Request"
-        >
-          <Plus size={20} />
-        </button>
+
+        {/* Environment Selector */}
+        <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+                <select 
+                    value={activeEnvironmentId || ''} 
+                    onChange={(e) => onSelectEnvironment(e.target.value || null)}
+                    className="w-full appearance-none bg-background border border-border text-xs text-white px-3 py-2 pr-8 rounded-sm outline-none focus:border-white transition-colors cursor-pointer"
+                >
+                    <option value="">No Environment</option>
+                    {environments.map(env => (
+                        <option key={env.id} value={env.id}>{env.name}</option>
+                    ))}
+                </select>
+                <ChevronDown size={12} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
+            </div>
+            <button 
+                onClick={onOpenEnvironmentManager}
+                className="p-2 bg-background border border-border text-muted hover:text-white rounded-sm transition-colors"
+                title="Manage Environments"
+            >
+                <Settings size={14} />
+            </button>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -155,7 +198,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <Box size={14} />
             <span>Workspace</span>
          </div>
-         <span className="opacity-50">v1.0.0</span>
+         <span className="opacity-50">v1.1.0</span>
       </div>
     </div>
   );

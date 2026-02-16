@@ -3,8 +3,22 @@ import { Sidebar } from './components/Sidebar';
 import { RequestPanel } from './components/RequestPanel';
 import { ResponsePanel } from './components/ResponsePanel';
 import { SaveDialog } from './components/SaveDialog';
-import { ApiRequest, ApiResponse, HistoryItem, HttpMethod, Collection } from './types';
+import { EnvironmentManager } from './components/EnvironmentManager';
+import { ImportDialog } from './components/ImportDialog';
+import { TabBar } from './components/TabBar';
+import { ApiRequest, ApiResponse, HistoryItem, HttpMethod, Collection, Environment, KeyValueItem, AuthConfig } from './types';
 import { generateMockData } from './services/geminiService';
+import { parsePostmanCollection, parseCurl } from './utils/importers';
+
+const DEFAULT_AUTH: AuthConfig = {
+  type: 'none',
+  bearerToken: '',
+  basicUsername: '',
+  basicPassword: '',
+  apiKeyKey: '',
+  apiKeyValue: '',
+  apiKeyLocation: 'header'
+};
 
 const DEFAULT_REQUEST: ApiRequest = {
   id: crypto.randomUUID(),
@@ -15,21 +29,30 @@ const DEFAULT_REQUEST: ApiRequest = {
   headers: [{ id: crypto.randomUUID(), key: '', value: '', enabled: true }],
   bodyType: 'json',
   bodyContent: '',
+  auth: DEFAULT_AUTH
 };
 
 const STORAGE_KEYS = {
   REQUESTS: 'thunderpost_requests',
   COLLECTIONS: 'thunderpost_collections',
   HISTORY: 'thunderpost_history',
-  ACTIVE_ID: 'thunderpost_active_id'
+  ACTIVE_ID: 'thunderpost_active_id',
+  OPEN_IDS: 'thunderpost_open_ids',
+  ENVIRONMENTS: 'thunderpost_environments',
+  ACTIVE_ENV_ID: 'thunderpost_active_env_id'
 };
 
 const App: React.FC = () => {
-  // Initialize state from localStorage or defaults
+  // --- STATE ---
   const [requests, setRequests] = useState<Record<string, ApiRequest>>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.REQUESTS);
-      return saved ? JSON.parse(saved) : { [DEFAULT_REQUEST.id]: DEFAULT_REQUEST };
+      const parsed = saved ? JSON.parse(saved) : { [DEFAULT_REQUEST.id]: DEFAULT_REQUEST };
+      // Migration: Ensure auth object exists for old requests
+      Object.values(parsed).forEach((req: any) => {
+          if (!req.auth) req.auth = { ...DEFAULT_AUTH };
+      });
+      return parsed;
     } catch {
       return { [DEFAULT_REQUEST.id]: DEFAULT_REQUEST };
     }
@@ -37,6 +60,16 @@ const App: React.FC = () => {
 
   const [activeRequestId, setActiveRequestId] = useState<string>(() => {
     return localStorage.getItem(STORAGE_KEYS.ACTIVE_ID) || DEFAULT_REQUEST.id;
+  });
+
+  const [openRequestIds, setOpenRequestIds] = useState<string[]>(() => {
+    try {
+        const saved = localStorage.getItem(STORAGE_KEYS.OPEN_IDS);
+        const ids = saved ? JSON.parse(saved) : [DEFAULT_REQUEST.id];
+        return ids.length ? ids : [DEFAULT_REQUEST.id];
+    } catch {
+        return [DEFAULT_REQUEST.id];
+    }
   });
 
   const [history, setHistory] = useState<HistoryItem[]>(() => {
@@ -56,33 +89,76 @@ const App: React.FC = () => {
       return [];
     }
   });
+
+  const [environments, setEnvironments] = useState<Environment[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.ENVIRONMENTS);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [activeEnvironmentId, setActiveEnvironmentId] = useState<string | null>(() => {
+      return localStorage.getItem(STORAGE_KEYS.ACTIVE_ENV_ID) || null;
+  });
   
   const [response, setResponse] = useState<ApiResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
+  const [isEnvManagerOpen, setIsEnvManagerOpen] = useState(false);
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
 
-  // Persistence Effects
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.REQUESTS, JSON.stringify(requests));
-  }, [requests]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(history));
-  }, [history]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.COLLECTIONS, JSON.stringify(collections));
-  }, [collections]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.ACTIVE_ID, activeRequestId);
-  }, [activeRequestId]);
+  // --- PERSISTENCE ---
+  useEffect(() => { localStorage.setItem(STORAGE_KEYS.REQUESTS, JSON.stringify(requests)); }, [requests]);
+  useEffect(() => { localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(history)); }, [history]);
+  useEffect(() => { localStorage.setItem(STORAGE_KEYS.COLLECTIONS, JSON.stringify(collections)); }, [collections]);
+  useEffect(() => { localStorage.setItem(STORAGE_KEYS.ACTIVE_ID, activeRequestId); }, [activeRequestId]);
+  useEffect(() => { localStorage.setItem(STORAGE_KEYS.OPEN_IDS, JSON.stringify(openRequestIds)); }, [openRequestIds]);
+  useEffect(() => { localStorage.setItem(STORAGE_KEYS.ENVIRONMENTS, JSON.stringify(environments)); }, [environments]);
+  useEffect(() => { 
+      if(activeEnvironmentId) localStorage.setItem(STORAGE_KEYS.ACTIVE_ENV_ID, activeEnvironmentId);
+      else localStorage.removeItem(STORAGE_KEYS.ACTIVE_ENV_ID);
+  }, [activeEnvironmentId]);
 
 
+  // --- HANDLERS ---
   const activeRequest = requests[activeRequestId] || requests[Object.keys(requests)[0]];
+
+  // Ensure active request is in open set (e.g. on first load)
+  useEffect(() => {
+    if (activeRequestId && !openRequestIds.includes(activeRequestId) && requests[activeRequestId]) {
+        setOpenRequestIds(prev => [...prev, activeRequestId]);
+    }
+  }, [activeRequestId, requests]);
 
   const handleUpdateRequest = (updated: ApiRequest) => {
     setRequests(prev => ({ ...prev, [updated.id]: updated }));
+  };
+
+  const handleOpenTab = (id: string) => {
+      if (!openRequestIds.includes(id)) {
+          setOpenRequestIds(prev => [...prev, id]);
+      }
+      setActiveRequestId(id);
+      setResponse(null); // Clear response on switch
+  };
+
+  const handleCloseTab = (id: string) => {
+      const newOpenIds = openRequestIds.filter(pid => pid !== id);
+      setOpenRequestIds(newOpenIds);
+
+      if (id === activeRequestId) {
+          // If closing active tab, switch to another
+          if (newOpenIds.length > 0) {
+             // Switch to the last opened one (or next neighbor)
+             setActiveRequestId(newOpenIds[newOpenIds.length - 1]);
+          } else {
+             // If closed last tab, create a new one
+             handleNewRequest();
+          }
+      }
+      // Note: We keep the request in `requests` map so it can be reopened from history/collections
   };
 
   const handleNewRequest = () => {
@@ -91,26 +167,26 @@ const App: React.FC = () => {
         id: crypto.randomUUID(), 
         params: [{ id: crypto.randomUUID(), key: '', value: '', enabled: true }], 
         headers: [{ id: crypto.randomUUID(), key: '', value: '', enabled: true }],
-        name: 'New Request'
+        name: 'New Request',
+        auth: { ...DEFAULT_AUTH }
     };
     setRequests(prev => ({ ...prev, [newReq.id]: newReq }));
-    setActiveRequestId(newReq.id);
-    setResponse(null);
+    handleOpenTab(newReq.id);
   };
 
   const handleSelectCollectionRequest = (req: ApiRequest) => {
-      // Check if this request is already open
+      // Ensure the request has auth property if loaded from old collection data
+      const reqWithAuth = req.auth ? req : { ...req, auth: { ...DEFAULT_AUTH } };
+      
       if (!requests[req.id]) {
-          setRequests(prev => ({ ...prev, [req.id]: { ...req } }));
+          setRequests(prev => ({ ...prev, [req.id]: { ...reqWithAuth } }));
       }
-      setActiveRequestId(req.id);
-      setResponse(null);
+      handleOpenTab(req.id);
   };
 
   const handleSelectHistory = (historyId: string) => {
       if (requests[historyId]) {
-          setActiveRequestId(historyId);
-          setResponse(null);
+          handleOpenTab(historyId);
       }
   };
 
@@ -175,15 +251,72 @@ const App: React.FC = () => {
       setCollections(prev => prev.map(c => c.id === id ? { ...c, isOpen: !c.isOpen } : c));
   };
 
+  const handleImportFile = async (file: File) => {
+      const text = await file.text();
+      try {
+          const json = JSON.parse(text);
+          const newCollection = parsePostmanCollection(json);
+          setCollections(prev => [...prev, newCollection]);
+          // Add requests to the main pool
+          const newRequestsMap = { ...requests };
+          newCollection.requests.forEach(req => {
+              newRequestsMap[req.id] = req;
+          });
+          setRequests(newRequestsMap);
+      } catch (e) {
+          console.error("Failed to parse collection", e);
+          alert("Failed to parse Postman collection. Ensure it is v2.1 format.");
+      }
+  };
+
+  const handleImportCurl = (curl: string) => {
+      try {
+          const newReq = parseCurl(curl);
+          setRequests(prev => ({ ...prev, [newReq.id]: newReq }));
+          handleOpenTab(newReq.id);
+      } catch (e) {
+          console.error("Failed to parse cURL", e);
+          alert("Failed to parse cURL command.");
+      }
+  };
+
+  // --- LOGIC ---
+
+  // Helper to replace {{variables}}
+  const substituteVariables = (text: string): string => {
+      if (!activeEnvironmentId || !text) return text;
+      const env = environments.find(e => e.id === activeEnvironmentId);
+      if (!env) return text;
+
+      let result = text;
+      env.variables.forEach(v => {
+          if (v.enabled && v.key) {
+              const regex = new RegExp(`\\{\\{\\s*${v.key}\\s*\\}\\}`, 'g');
+              result = result.replace(regex, v.value);
+          }
+      });
+      return result;
+  };
+
   const constructUrl = (req: ApiRequest) => {
+    let urlWithVars = substituteVariables(req.url);
     try {
-        const urlObj = new URL(req.url);
+        const urlObj = new URL(urlWithVars);
         req.params.filter(p => p.enabled && p.key).forEach(p => {
-            urlObj.searchParams.append(p.key, p.value);
+            const val = substituteVariables(p.value);
+            urlObj.searchParams.append(p.key, val);
         });
+        
+        // Add Query Params from Auth (API Key)
+        if (req.auth.type === 'apikey' && req.auth.apiKeyLocation === 'query' && req.auth.apiKeyKey) {
+            const key = substituteVariables(req.auth.apiKeyKey);
+            const val = substituteVariables(req.auth.apiKeyValue);
+            urlObj.searchParams.append(key, val);
+        }
+
         return urlObj.toString();
     } catch {
-        return req.url;
+        return urlWithVars;
     }
   };
 
@@ -197,6 +330,7 @@ const App: React.FC = () => {
     try {
       if (mockMode) {
         const schema = activeRequest.bodyType === 'schema' ? activeRequest.bodyContent : '';
+        // Note: Mocking doesn't typically need variable substitution unless schema refers to it, but good for URL context.
         const mockData = await generateMockData(schema || "No explicit schema", activeRequest.url, activeRequest.method);
         
         const endTime = Date.now();
@@ -215,24 +349,41 @@ const App: React.FC = () => {
       } else {
         const finalUrl = constructUrl(activeRequest);
         const headers: Record<string, string> = {};
-        activeRequest.headers.filter(h => h.enabled && h.key).forEach(h => headers[h.key] = h.value);
         
+        // 1. Standard Headers
+        activeRequest.headers.filter(h => h.enabled && h.key).forEach(h => {
+            headers[h.key] = substituteVariables(h.value);
+        });
+
+        // 2. Auth Injection
+        const auth = activeRequest.auth;
+        if (auth.type === 'bearer' && auth.bearerToken) {
+            headers['Authorization'] = `Bearer ${substituteVariables(auth.bearerToken)}`;
+        } else if (auth.type === 'basic') {
+            const user = substituteVariables(auth.basicUsername || '');
+            const pass = substituteVariables(auth.basicPassword || '');
+            headers['Authorization'] = `Basic ${btoa(user + ':' + pass)}`;
+        } else if (auth.type === 'apikey' && auth.apiKeyLocation === 'header' && auth.apiKeyKey) {
+            headers[substituteVariables(auth.apiKeyKey)] = substituteVariables(auth.apiKeyValue);
+        }
+
         const options: RequestInit = {
           method: activeRequest.method,
           headers: headers,
         };
 
         if (activeRequest.method !== HttpMethod.GET && activeRequest.method !== HttpMethod.DELETE) {
-          if (activeRequest.bodyType === 'json') {
+           const bodyContent = substituteVariables(activeRequest.bodyContent);
+           if (activeRequest.bodyType === 'json') {
              try {
-                JSON.parse(activeRequest.bodyContent); 
+                JSON.parse(bodyContent); 
                 headers['Content-Type'] = 'application/json';
-                options.body = activeRequest.bodyContent;
+                options.body = bodyContent;
              } catch {
-                options.body = activeRequest.bodyContent;
+                options.body = bodyContent;
              }
           } else {
-             options.body = activeRequest.bodyContent;
+             options.body = bodyContent;
           }
         }
 
@@ -254,7 +405,7 @@ const App: React.FC = () => {
             status: res.status,
             statusText: res.statusText,
             data,
-            size: (JSON.stringify(data) || data).length + ' B',
+            size: (typeof data === 'string' ? data.length : JSON.stringify(data).length) + ' B',
             time: endTime - startTime,
             headers: resHeaders
         });
@@ -276,19 +427,36 @@ const App: React.FC = () => {
     }
   };
 
+  // Filter requests for tabs
+  const openTabs = openRequestIds
+    .map(id => requests[id])
+    .filter(Boolean);
+
   return (
     <div className="flex w-full h-screen overflow-hidden text-base">
       <Sidebar 
         history={history} 
         collections={collections}
         activeId={activeRequestId}
+        environments={environments}
+        activeEnvironmentId={activeEnvironmentId}
         onSelectHistory={handleSelectHistory}
         onSelectCollectionRequest={handleSelectCollectionRequest}
         onNewRequest={handleNewRequest}
         onToggleCollection={handleToggleCollection}
+        onSelectEnvironment={setActiveEnvironmentId}
+        onOpenEnvironmentManager={() => setIsEnvManagerOpen(true)}
+        onOpenImport={() => setIsImportDialogOpen(true)}
       />
       
       <main className="flex-1 flex flex-col min-w-0 bg-background">
+        <TabBar 
+            tabs={openTabs}
+            activeId={activeRequestId}
+            onSelect={handleOpenTab}
+            onClose={handleCloseTab}
+            onNew={handleNewRequest}
+        />
         <div className="flex-1 grid grid-rows-[60%_40%] lg:grid-rows-1 lg:grid-cols-2 overflow-hidden">
           <div className="h-full border-b lg:border-b-0 lg:border-r border-border min-h-0">
              <RequestPanel 
@@ -313,6 +481,20 @@ const App: React.FC = () => {
         collections={collections}
         onSave={handleSaveRequest}
         initialName={activeRequest.name}
+      />
+      
+      <EnvironmentManager 
+        isOpen={isEnvManagerOpen}
+        onClose={() => setIsEnvManagerOpen(false)}
+        environments={environments}
+        onUpdateEnvironments={setEnvironments}
+      />
+
+      <ImportDialog
+        isOpen={isImportDialogOpen}
+        onClose={() => setIsImportDialogOpen(false)}
+        onImportFile={handleImportFile}
+        onImportCurl={handleImportCurl}
       />
     </div>
   );

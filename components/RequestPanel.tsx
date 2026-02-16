@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
-import { ApiRequest, HttpMethod, TabType } from '../types';
+import React, { useState, useEffect } from 'react';
+import { ApiRequest, HttpMethod, TabType, AuthType } from '../types';
 import { KeyValueEditor } from './KeyValueEditor';
-import { Play, Sparkles, Save, ChevronDown } from 'lucide-react';
+import { Play, Sparkles, Save, ChevronDown, Lock, Eye, EyeOff } from 'lucide-react';
 
 interface RequestPanelProps {
   request: ApiRequest;
@@ -14,14 +14,38 @@ interface RequestPanelProps {
 
 export const RequestPanel: React.FC<RequestPanelProps> = ({ request, onUpdateRequest, onSend, onMockSend, onSave, isLoading }) => {
   const [activeTab, setActiveTab] = useState<TabType>('params');
+  const [showPassword, setShowPassword] = useState(false);
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [tempName, setTempName] = useState(request.name);
+
+  useEffect(() => {
+    setTempName(request.name);
+  }, [request.name]);
 
   const updateField = (field: keyof ApiRequest, value: any) => {
     onUpdateRequest({ ...request, [field]: value });
   };
 
+  const updateAuth = (field: string, value: any) => {
+      onUpdateRequest({ 
+          ...request, 
+          auth: { ...request.auth, [field]: value }
+      });
+  };
+
+  const handleNameSave = () => {
+      if (tempName.trim() && tempName !== request.name) {
+          updateField('name', tempName);
+      } else {
+          setTempName(request.name);
+      }
+      setIsEditingName(false);
+  };
+
   const tabs: { id: TabType; label: string; count?: number }[] = [
     { id: 'params', label: 'Query Params', count: request.params.filter(p => p.key).length },
     { id: 'headers', label: 'Headers', count: request.headers.filter(h => h.key).length },
+    { id: 'auth', label: 'Auth', count: request.auth.type !== 'none' ? 1 : 0 },
     { id: 'body', label: 'JSON Body' },
     { id: 'schema', label: 'AI Mock' },
   ];
@@ -31,13 +55,31 @@ export const RequestPanel: React.FC<RequestPanelProps> = ({ request, onUpdateReq
       {/* Top Bar / URL */}
       <div className="p-5 border-b border-border flex flex-col gap-4">
         <div className="flex items-center justify-between">
-           <div className="flex items-center gap-2 overflow-hidden">
-             <span className="text-lg font-bold truncate text-white">{request.name}</span>
-             {request.collectionId && <span className="text-xs text-muted px-2 py-0.5 border border-border rounded">Saved</span>}
+           <div className="flex items-center gap-2 overflow-hidden flex-1 mr-4">
+             {isEditingName ? (
+                <input 
+                    type="text" 
+                    value={tempName}
+                    onChange={(e) => setTempName(e.target.value)}
+                    onBlur={handleNameSave}
+                    onKeyDown={(e) => e.key === 'Enter' && handleNameSave()}
+                    className="text-lg font-bold text-white bg-transparent outline-none border-b border-white w-full max-w-md"
+                    autoFocus
+                />
+             ) : (
+                <span 
+                    onDoubleClick={() => setIsEditingName(true)}
+                    className="text-lg font-bold truncate text-white cursor-text hover:text-gray-200 border border-transparent hover:border-border px-1 -ml-1 rounded transition-colors select-none"
+                    title="Double click to rename"
+                >
+                    {request.name}
+                </span>
+             )}
+             {request.collectionId && <span className="text-xs text-muted px-2 py-0.5 border border-border rounded shrink-0">Saved</span>}
            </div>
            <button 
               onClick={onSave}
-              className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-muted hover:text-white transition-colors border border-transparent hover:border-border rounded"
+              className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-muted hover:text-white transition-colors border border-transparent hover:border-border rounded shrink-0"
            >
               <Save size={16} />
               Save
@@ -94,7 +136,7 @@ export const RequestPanel: React.FC<RequestPanelProps> = ({ request, onUpdateReq
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center px-5 border-b border-border gap-8 overflow-x-auto bg-background">
+      <div className="flex items-center px-5 border-b border-border gap-8 overflow-x-auto bg-background no-scrollbar">
         {tabs.map(tab => (
           <button
             key={tab.id}
@@ -107,6 +149,7 @@ export const RequestPanel: React.FC<RequestPanelProps> = ({ request, onUpdateReq
           >
             {tab.label}
             {tab.count ? <span className="text-[10px] bg-neutral-800 px-1.5 py-0.5 rounded-full text-white">{tab.count}</span> : null}
+            {tab.id === 'auth' && request.auth.type !== 'none' && <Lock size={12} className="text-white opacity-70" />}
             {tab.id === 'schema' && <Sparkles size={12} className="text-white opacity-70" />}
           </button>
         ))}
@@ -159,6 +202,127 @@ export const RequestPanel: React.FC<RequestPanelProps> = ({ request, onUpdateReq
               placeholder={request.bodyType === 'json' ? '{\n  "key": "value"\n}' : 'Raw text content'}
               spellCheck={false}
             />
+          </div>
+        )}
+
+        {activeTab === 'auth' && (
+          <div className="h-full flex flex-col max-w-2xl">
+             <div className="flex items-center gap-4 mb-6">
+                 <label className="text-sm font-semibold text-white w-24">Auth Type</label>
+                 <div className="relative flex-1">
+                    <select
+                        value={request.auth.type}
+                        onChange={(e) => updateAuth('type', e.target.value)}
+                        className="w-full appearance-none bg-surface border border-border text-white px-4 py-3 rounded outline-none focus:border-white transition-colors cursor-pointer"
+                    >
+                        <option value="none">No Auth</option>
+                        <option value="bearer">Bearer Token</option>
+                        <option value="basic">Basic Auth</option>
+                        <option value="apikey">API Key</option>
+                    </select>
+                    <ChevronDown size={14} className="absolute right-4 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
+                 </div>
+             </div>
+
+             {request.auth.type === 'none' && (
+                 <div className="text-center text-muted p-12 bg-surface rounded border border-border border-dashed">
+                     <Lock size={32} className="mx-auto mb-3 opacity-30" />
+                     <p>This request does not use any authorization.</p>
+                 </div>
+             )}
+
+             {request.auth.type === 'bearer' && (
+                 <div className="space-y-4 p-6 bg-surface border border-border rounded">
+                     <div className="flex flex-col gap-2">
+                         <label className="text-xs font-bold text-muted uppercase tracking-wider">Token</label>
+                         <div className="relative">
+                            <input 
+                                type={showPassword ? "text" : "password"}
+                                value={request.auth.bearerToken}
+                                onChange={(e) => updateAuth('bearerToken', e.target.value)}
+                                className="w-full bg-background border border-border px-4 py-3 text-white focus:border-white outline-none"
+                                placeholder="Token"
+                            />
+                            <button onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-white">
+                                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                            </button>
+                         </div>
+                     </div>
+                 </div>
+             )}
+
+             {request.auth.type === 'basic' && (
+                 <div className="space-y-4 p-6 bg-surface border border-border rounded">
+                     <div className="flex flex-col gap-2">
+                         <label className="text-xs font-bold text-muted uppercase tracking-wider">Username</label>
+                         <input 
+                            type="text"
+                            value={request.auth.basicUsername}
+                            onChange={(e) => updateAuth('basicUsername', e.target.value)}
+                            className="w-full bg-background border border-border px-4 py-3 text-white focus:border-white outline-none"
+                            placeholder="Username"
+                        />
+                     </div>
+                     <div className="flex flex-col gap-2">
+                         <label className="text-xs font-bold text-muted uppercase tracking-wider">Password</label>
+                         <div className="relative">
+                            <input 
+                                type={showPassword ? "text" : "password"}
+                                value={request.auth.basicPassword}
+                                onChange={(e) => updateAuth('basicPassword', e.target.value)}
+                                className="w-full bg-background border border-border px-4 py-3 text-white focus:border-white outline-none"
+                                placeholder="Password"
+                            />
+                            <button onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-white">
+                                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                            </button>
+                         </div>
+                     </div>
+                 </div>
+             )}
+
+             {request.auth.type === 'apikey' && (
+                 <div className="space-y-4 p-6 bg-surface border border-border rounded">
+                     <div className="grid grid-cols-2 gap-4">
+                        <div className="flex flex-col gap-2">
+                            <label className="text-xs font-bold text-muted uppercase tracking-wider">Key</label>
+                            <input 
+                                type="text"
+                                value={request.auth.apiKeyKey}
+                                onChange={(e) => updateAuth('apiKeyKey', e.target.value)}
+                                className="w-full bg-background border border-border px-4 py-3 text-white focus:border-white outline-none"
+                                placeholder="Key (e.g. X-API-KEY)"
+                            />
+                        </div>
+                        <div className="flex flex-col gap-2">
+                            <label className="text-xs font-bold text-muted uppercase tracking-wider">Value</label>
+                            <div className="relative">
+                                <input 
+                                    type={showPassword ? "text" : "password"}
+                                    value={request.auth.apiKeyValue}
+                                    onChange={(e) => updateAuth('apiKeyValue', e.target.value)}
+                                    className="w-full bg-background border border-border px-4 py-3 text-white focus:border-white outline-none"
+                                    placeholder="Value"
+                                />
+                                <button onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-white">
+                                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                                </button>
+                            </div>
+                        </div>
+                     </div>
+                     <div className="flex flex-col gap-2">
+                         <label className="text-xs font-bold text-muted uppercase tracking-wider">Add to</label>
+                         <select 
+                            value={request.auth.apiKeyLocation}
+                            onChange={(e) => updateAuth('apiKeyLocation', e.target.value)}
+                            className="w-full appearance-none bg-background border border-border px-4 py-3 text-white focus:border-white outline-none cursor-pointer"
+                         >
+                             <option value="header">Header</option>
+                             <option value="query">Query Params</option>
+                         </select>
+                     </div>
+                 </div>
+             )}
           </div>
         )}
 

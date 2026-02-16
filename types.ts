@@ -13,6 +13,18 @@ export interface KeyValueItem {
   enabled: boolean;
 }
 
+export type AuthType = 'none' | 'bearer' | 'basic' | 'apikey';
+
+export interface AuthConfig {
+  type: AuthType;
+  bearerToken: string;
+  basicUsername: string;
+  basicPassword: string;
+  apiKeyKey: string;
+  apiKeyValue: string;
+  apiKeyLocation: 'header' | 'query';
+}
+
 export interface ApiRequest {
   id: string;
   name: string;
@@ -20,9 +32,10 @@ export interface ApiRequest {
   url: string;
   params: KeyValueItem[];
   headers: KeyValueItem[];
-  bodyType: 'json' | 'text' | 'schema'; // 'schema' is for AI mocking
+  bodyType: 'json' | 'text' | 'schema';
   bodyContent: string;
   collectionId?: string;
+  auth: AuthConfig;
 }
 
 export interface Collection {
@@ -32,12 +45,18 @@ export interface Collection {
   isOpen: boolean;
 }
 
+export interface Environment {
+  id: string;
+  name: string;
+  variables: KeyValueItem[];
+}
+
 export interface ApiResponse {
   status: number;
   statusText: string;
   data: any;
   size: string;
-  time: number; // milliseconds
+  time: number;
   headers: Record<string, string>;
   isMock?: boolean;
 }
