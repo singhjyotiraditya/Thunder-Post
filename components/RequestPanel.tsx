@@ -1,18 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { ApiRequest, HttpMethod, TabType, AuthType } from '../types';
 import { KeyValueEditor } from './KeyValueEditor';
-import { Play, Sparkles, Save, ChevronDown, Lock, Eye, EyeOff } from 'lucide-react';
+import { Play, Save, ChevronDown, Lock, Eye, EyeOff } from 'lucide-react';
+import { CustomDropdown } from './CustomDropdown';
 
 interface RequestPanelProps {
   request: ApiRequest;
   onUpdateRequest: (req: ApiRequest) => void;
   onSend: () => void;
-  onMockSend: () => void;
   onSave: () => void;
   isLoading: boolean;
+  style?: React.CSSProperties;
 }
 
-export const RequestPanel: React.FC<RequestPanelProps> = ({ request, onUpdateRequest, onSend, onMockSend, onSave, isLoading }) => {
+export const RequestPanel: React.FC<RequestPanelProps> = ({ request, onUpdateRequest, onSend, onSave, isLoading, style }) => {
   const [activeTab, setActiveTab] = useState<TabType>('params');
   const [showPassword, setShowPassword] = useState(false);
   const [isEditingName, setIsEditingName] = useState(false);
@@ -47,11 +48,36 @@ export const RequestPanel: React.FC<RequestPanelProps> = ({ request, onUpdateReq
     { id: 'headers', label: 'Headers', count: request.headers.filter(h => h.key).length },
     { id: 'auth', label: 'Auth', count: request.auth.type !== 'none' ? 1 : 0 },
     { id: 'body', label: 'JSON Body' },
-    { id: 'schema', label: 'AI Mock' },
+  ];
+
+  const methodOptions = Object.values(HttpMethod).map(m => {
+    let color = 'text-white';
+    if(m === HttpMethod.GET) color = 'text-green-500';
+    if(m === HttpMethod.POST) color = 'text-yellow-500';
+    if(m === HttpMethod.PUT) color = 'text-blue-500';
+    if(m === HttpMethod.DELETE) color = 'text-red-500';
+    if(m === HttpMethod.PATCH) color = 'text-purple-500';
+    
+    return {
+        label: <span className={`font-bold tracking-wider ${color}`}>{m}</span>,
+        value: m
+    };
+  });
+
+  const authTypeOptions = [
+      { label: 'No Auth', value: 'none' },
+      { label: 'Bearer Token', value: 'bearer' },
+      { label: 'Basic Auth', value: 'basic' },
+      { label: 'API Key', value: 'apikey' }
+  ];
+
+  const apiKeyLocationOptions = [
+      { label: 'Header', value: 'header' },
+      { label: 'Query Params', value: 'query' }
   ];
 
   return (
-    <div className="flex flex-col h-full overflow-hidden bg-background">
+    <div style={style} className="flex flex-col h-full overflow-hidden bg-background">
       {/* Top Bar / URL */}
       <div className="p-5 border-b border-border flex flex-col gap-4">
         <div className="flex items-center justify-between">
@@ -87,17 +113,14 @@ export const RequestPanel: React.FC<RequestPanelProps> = ({ request, onUpdateReq
         </div>
 
         <div className="flex gap-2 items-stretch h-12">
-          <div className="relative group">
-              <select
+          <div className="w-[120px]">
+              <CustomDropdown
                 value={request.method}
-                onChange={(e) => updateField('method', e.target.value)}
-                className="h-full appearance-none bg-surface border border-border rounded-l px-4 pr-8 font-bold text-sm outline-none focus:border-white focus:ring-0 cursor-pointer text-white tracking-wider"
-              >
-                {Object.values(HttpMethod).map(m => <option key={m} value={m}>{m}</option>)}
-              </select>
-              <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-muted">
-                <ChevronDown size={12} />
-              </div>
+                options={methodOptions}
+                onChange={(val) => updateField('method', val)}
+                className="h-full"
+                triggerClassName="h-full rounded-l rounded-r-none border-r-0 bg-surface"
+              />
           </div>
           
           <input
@@ -118,20 +141,6 @@ export const RequestPanel: React.FC<RequestPanelProps> = ({ request, onUpdateReq
             <Play size={16} fill="currentColor" />
             SEND
           </button>
-          
-          <div className="w-px bg-border mx-2"></div>
-
-          <button
-            onClick={onMockSend}
-            disabled={isLoading}
-            className={`flex items-center gap-2 px-4 rounded font-medium text-sm transition-all border
-                ${isLoading ? 'border-border text-muted cursor-not-allowed' : 'border-border hover:border-white text-white'}
-            `}
-            title="Generate a response using AI based on the schema/type defined"
-          >
-            <Sparkles size={16} />
-            Mock
-          </button>
         </div>
       </div>
 
@@ -150,7 +159,6 @@ export const RequestPanel: React.FC<RequestPanelProps> = ({ request, onUpdateReq
             {tab.label}
             {tab.count ? <span className="text-[10px] bg-neutral-800 px-1.5 py-0.5 rounded-full text-white">{tab.count}</span> : null}
             {tab.id === 'auth' && request.auth.type !== 'none' && <Lock size={12} className="text-white opacity-70" />}
-            {tab.id === 'schema' && <Sparkles size={12} className="text-white opacity-70" />}
           </button>
         ))}
       </div>
@@ -209,18 +217,14 @@ export const RequestPanel: React.FC<RequestPanelProps> = ({ request, onUpdateReq
           <div className="h-full flex flex-col max-w-2xl">
              <div className="flex items-center gap-4 mb-6">
                  <label className="text-sm font-semibold text-white w-24">Auth Type</label>
-                 <div className="relative flex-1">
-                    <select
+                 <div className="flex-1">
+                    <CustomDropdown 
                         value={request.auth.type}
-                        onChange={(e) => updateAuth('type', e.target.value)}
-                        className="w-full appearance-none bg-surface border border-border text-white px-4 py-3 rounded outline-none focus:border-white transition-colors cursor-pointer"
-                    >
-                        <option value="none">No Auth</option>
-                        <option value="bearer">Bearer Token</option>
-                        <option value="basic">Basic Auth</option>
-                        <option value="apikey">API Key</option>
-                    </select>
-                    <ChevronDown size={14} className="absolute right-4 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
+                        options={authTypeOptions}
+                        onChange={(val) => updateAuth('type', val)}
+                        className="w-full"
+                        triggerClassName="py-3 px-4 rounded"
+                    />
                  </div>
              </div>
 
@@ -312,52 +316,15 @@ export const RequestPanel: React.FC<RequestPanelProps> = ({ request, onUpdateReq
                      </div>
                      <div className="flex flex-col gap-2">
                          <label className="text-xs font-bold text-muted uppercase tracking-wider">Add to</label>
-                         <select 
-                            value={request.auth.apiKeyLocation}
-                            onChange={(e) => updateAuth('apiKeyLocation', e.target.value)}
-                            className="w-full appearance-none bg-background border border-border px-4 py-3 text-white focus:border-white outline-none cursor-pointer"
-                         >
-                             <option value="header">Header</option>
-                             <option value="query">Query Params</option>
-                         </select>
+                         <CustomDropdown
+                             value={request.auth.apiKeyLocation}
+                             options={apiKeyLocationOptions}
+                             onChange={(val) => updateAuth('apiKeyLocation', val)}
+                             triggerClassName="py-3 px-4 bg-background"
+                         />
                      </div>
                  </div>
              )}
-          </div>
-        )}
-
-        {activeTab === 'schema' && (
-          <div className="h-full flex flex-col">
-             <div className="bg-surface border border-border rounded p-4 mb-4 flex gap-3 items-start">
-                <div className="p-2 bg-white/10 rounded-full">
-                  <Sparkles size={18} className="text-white" />
-                </div>
-                <div>
-                  <h4 className="text-white font-bold mb-1">AI Mock Generator</h4>
-                  <p className="text-sm text-muted leading-relaxed">
-                    Define your data structure using TypeScript interfaces or plain English. 
-                    Click the <strong>Mock</strong> button in the top bar to generate realistic data instantly.
-                  </p>
-                </div>
-             </div>
-             <textarea
-              value={request.bodyType === 'schema' ? request.bodyContent : ''}
-              onChange={(e) => {
-                  updateField('bodyType', 'schema');
-                  updateField('bodyContent', e.target.value);
-              }}
-              className="flex-1 w-full bg-surface border border-border rounded p-4 font-mono text-sm text-white outline-none focus:border-white resize-none leading-relaxed"
-              placeholder={`interface User {
-  id: number;
-  username: string;
-  email: string;
-  avatar: string;
-  isActive: boolean;
-}
-
-// Or just: "List of 5 users with realistic names"`}
-              spellCheck={false}
-            />
           </div>
         )}
       </div>

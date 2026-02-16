@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { HistoryItem, HttpMethod, Collection, ApiRequest, Environment } from '../types';
-import { History, Plus, Activity, Box, Folder, FolderOpen, ChevronRight, ChevronDown, MoreHorizontal, Settings, Database, Upload } from 'lucide-react';
+import { Activity, Folder, FolderOpen, ChevronRight, Settings, Upload, Box, ChevronDown } from 'lucide-react';
+import { CustomDropdown } from './CustomDropdown';
 
 interface SidebarProps {
+  width: number;
   history: HistoryItem[];
   collections: Collection[];
   activeId: string;
@@ -29,6 +31,7 @@ const MethodBadge: React.FC<{ method: HttpMethod }> = ({ method }) => {
 };
 
 export const Sidebar: React.FC<SidebarProps> = ({ 
+  width,
   history, 
   collections, 
   activeId, 
@@ -44,14 +47,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'collections' | 'history'>('collections');
 
+  const envOptions = [
+      { label: 'No Environment', value: '' },
+      ...environments.map(env => ({ label: env.name, value: env.id }))
+  ];
+
   return (
-    <div className="w-72 h-full bg-surface border-r border-border flex flex-col">
+    <div 
+      style={{ width: `${width}px` }}
+      className="h-full bg-surface border-r border-border flex flex-col shrink-0"
+    >
       {/* Header */}
       <div className="p-5 border-b border-border flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3 text-white font-bold text-xl tracking-tight">
             <Activity size={24} className="text-white" />
-            <span>ThunderPost</span>
+            <span className="truncate">ThunderPost</span>
           </div>
           <div className="flex items-center gap-1">
             <button 
@@ -65,30 +76,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onClick={onNewRequest}
                 className="p-2 hover:bg-white text-white hover:text-black transition-all rounded-sm"
                 title="New Request"
+                // Prevent creating new request from resizing sidebar
+                onMouseDown={(e) => e.stopPropagation()} 
             >
-                <Plus size={20} />
+                <Box size={20} />
             </button>
           </div>
         </div>
 
         {/* Environment Selector */}
         <div className="flex items-center gap-2">
-            <div className="relative flex-1">
-                <select 
-                    value={activeEnvironmentId || ''} 
-                    onChange={(e) => onSelectEnvironment(e.target.value || null)}
-                    className="w-full appearance-none bg-background border border-border text-xs text-white px-3 py-2 pr-8 rounded-sm outline-none focus:border-white transition-colors cursor-pointer"
-                >
-                    <option value="">No Environment</option>
-                    {environments.map(env => (
-                        <option key={env.id} value={env.id}>{env.name}</option>
-                    ))}
-                </select>
-                <ChevronDown size={12} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
-            </div>
+            <CustomDropdown 
+                value={activeEnvironmentId || ''}
+                options={envOptions}
+                onChange={(val) => onSelectEnvironment(val || null)}
+                className="flex-1 min-w-0"
+                triggerClassName="py-2 text-xs bg-background rounded-sm"
+            />
             <button 
                 onClick={onOpenEnvironmentManager}
-                className="p-2 bg-background border border-border text-muted hover:text-white rounded-sm transition-colors"
+                className="p-2 bg-background border border-border text-muted hover:text-white rounded-sm transition-colors shrink-0"
                 title="Manage Environments"
             >
                 <Settings size={14} />
@@ -198,7 +205,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <Box size={14} />
             <span>Workspace</span>
          </div>
-         <span className="opacity-50">v1.1.0</span>
+         <span className="opacity-50">v1.2.0</span>
       </div>
     </div>
   );

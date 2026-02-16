@@ -77,11 +77,6 @@ export const ResponsePanel: React.FC<ResponsePanelProps> = ({ response, isLoadin
             <Database size={14} />
             {response.size}
           </span>
-          {response.isMock && (
-             <span className="text-white bg-white/10 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border border-white/20">
-               AI Mock
-             </span>
-          )}
         </div>
         
         <div className="flex gap-2">

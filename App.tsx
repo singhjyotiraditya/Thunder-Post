@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { RequestPanel } from './components/RequestPanel';
 import { ResponsePanel } from './components/ResponsePanel';
@@ -7,7 +7,6 @@ import { EnvironmentManager } from './components/EnvironmentManager';
 import { ImportDialog } from './components/ImportDialog';
 import { TabBar } from './components/TabBar';
 import { ApiRequest, ApiResponse, HistoryItem, HttpMethod, Collection, Environment, KeyValueItem, AuthConfig } from './types';
-import { generateMockData } from './services/geminiService';
 import { parsePostmanCollection, parseCurl } from './utils/importers';
 
 const DEFAULT_AUTH: AuthConfig = {
@@ -39,7 +38,8 @@ const STORAGE_KEYS = {
   ACTIVE_ID: 'thunderpost_active_id',
   OPEN_IDS: 'thunderpost_open_ids',
   ENVIRONMENTS: 'thunderpost_environments',
-  ACTIVE_ENV_ID: 'thunderpost_active_env_id'
+  ACTIVE_ENV_ID: 'thunderpost_active_env_id',
+  LAYOUT: 'thunderpost_layout'
 };
 
 const App: React.FC = () => {
@@ -48,9 +48,10 @@ const App: React.FC = () => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.REQUESTS);
       const parsed = saved ? JSON.parse(saved) : { [DEFAULT_REQUEST.id]: DEFAULT_REQUEST };
-      // Migration: Ensure auth object exists for old requests
       Object.values(parsed).forEach((req: any) => {
           if (!req.auth) req.auth = { ...DEFAULT_AUTH };
+          // Migration: Remove schema type if present from old data
+          if (req.bodyType === 'schema') req.bodyType = 'json'; 
       });
       return parsed;
     } catch {
@@ -71,6 +72,21 @@ const App: React.FC = () => {
         return [DEFAULT_REQUEST.id];
     }
   });
+
+  // Layout State
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+      const saved = localStorage.getItem(STORAGE_KEYS.LAYOUT);
+      return saved ? JSON.parse(saved).sidebar || 280 : 280;
+  });
+  const [requestPanelPercent, setRequestPanelPercent] = useState(() => {
+      const saved = localStorage.getItem(STORAGE_KEYS.LAYOUT);
+      return saved ? JSON.parse(saved).panelPercent || 50 : 50;
+  });
+
+  // Resizing Refs
+  const isResizingSidebar = useRef(false);
+  const isResizingPanel = useRef(false);
+  const appContainerRef = useRef<HTMLDivElement>(null);
 
   const [history, setHistory] = useState<HistoryItem[]>(() => {
     try {
@@ -120,12 +136,50 @@ const App: React.FC = () => {
       if(activeEnvironmentId) localStorage.setItem(STORAGE_KEYS.ACTIVE_ENV_ID, activeEnvironmentId);
       else localStorage.removeItem(STORAGE_KEYS.ACTIVE_ENV_ID);
   }, [activeEnvironmentId]);
+  
+  // Save Layout
+  useEffect(() => {
+      localStorage.setItem(STORAGE_KEYS.LAYOUT, JSON.stringify({ sidebar: sidebarWidth, panelPercent: requestPanelPercent }));
+  }, [sidebarWidth, requestPanelPercent]);
+
+  // --- RESIZE HANDLERS ---
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+        if (isResizingSidebar.current) {
+            e.preventDefault();
+            const newWidth = Math.max(200, Math.min(600, e.clientX));
+            setSidebarWidth(newWidth);
+        }
+        if (isResizingPanel.current && appContainerRef.current) {
+            e.preventDefault();
+            // Calculate relative to the main content area (Total width - Sidebar)
+            const mainContentWidth = appContainerRef.current.clientWidth - sidebarWidth;
+            const relativeX = e.clientX - sidebarWidth;
+            const percent = (relativeX / mainContentWidth) * 100;
+            setRequestPanelPercent(Math.max(20, Math.min(80, percent)));
+        }
+    };
+
+    const handleMouseUp = () => {
+        if (isResizingSidebar.current || isResizingPanel.current) {
+            isResizingSidebar.current = false;
+            isResizingPanel.current = false;
+            document.body.style.cursor = 'default';
+        }
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+        window.removeEventListener('mousemove', handleMouseMove);
+        window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [sidebarWidth]);
 
 
   // --- HANDLERS ---
   const activeRequest = requests[activeRequestId] || requests[Object.keys(requests)[0]];
 
-  // Ensure active request is in open set (e.g. on first load)
   useEffect(() => {
     if (activeRequestId && !openRequestIds.includes(activeRequestId) && requests[activeRequestId]) {
         setOpenRequestIds(prev => [...prev, activeRequestId]);
@@ -141,7 +195,7 @@ const App: React.FC = () => {
           setOpenRequestIds(prev => [...prev, id]);
       }
       setActiveRequestId(id);
-      setResponse(null); // Clear response on switch
+      setResponse(null);
   };
 
   const handleCloseTab = (id: string) => {
@@ -149,16 +203,12 @@ const App: React.FC = () => {
       setOpenRequestIds(newOpenIds);
 
       if (id === activeRequestId) {
-          // If closing active tab, switch to another
           if (newOpenIds.length > 0) {
-             // Switch to the last opened one (or next neighbor)
              setActiveRequestId(newOpenIds[newOpenIds.length - 1]);
           } else {
-             // If closed last tab, create a new one
              handleNewRequest();
           }
       }
-      // Note: We keep the request in `requests` map so it can be reopened from history/collections
   };
 
   const handleNewRequest = () => {
@@ -175,9 +225,7 @@ const App: React.FC = () => {
   };
 
   const handleSelectCollectionRequest = (req: ApiRequest) => {
-      // Ensure the request has auth property if loaded from old collection data
       const reqWithAuth = req.auth ? req : { ...req, auth: { ...DEFAULT_AUTH } };
-      
       if (!requests[req.id]) {
           setRequests(prev => ({ ...prev, [req.id]: { ...reqWithAuth } }));
       }
@@ -257,7 +305,6 @@ const App: React.FC = () => {
           const json = JSON.parse(text);
           const newCollection = parsePostmanCollection(json);
           setCollections(prev => [...prev, newCollection]);
-          // Add requests to the main pool
           const newRequestsMap = { ...requests };
           newCollection.requests.forEach(req => {
               newRequestsMap[req.id] = req;
@@ -280,9 +327,6 @@ const App: React.FC = () => {
       }
   };
 
-  // --- LOGIC ---
-
-  // Helper to replace {{variables}}
   const substituteVariables = (text: string): string => {
       if (!activeEnvironmentId || !text) return text;
       const env = environments.find(e => e.id === activeEnvironmentId);
@@ -307,7 +351,6 @@ const App: React.FC = () => {
             urlObj.searchParams.append(p.key, val);
         });
         
-        // Add Query Params from Auth (API Key)
         if (req.auth.type === 'apikey' && req.auth.apiKeyLocation === 'query' && req.auth.apiKeyKey) {
             const key = substituteVariables(req.auth.apiKeyKey);
             const val = substituteVariables(req.auth.apiKeyValue);
@@ -320,98 +363,76 @@ const App: React.FC = () => {
     }
   };
 
-  const executeRequest = async (mockMode: boolean = false) => {
-    if (!activeRequest.url && !mockMode) return;
+  const executeRequest = async () => {
+    if (!activeRequest.url) return;
     
     setIsLoading(true);
     setResponse(null);
     const startTime = Date.now();
 
     try {
-      if (mockMode) {
-        const schema = activeRequest.bodyType === 'schema' ? activeRequest.bodyContent : '';
-        // Note: Mocking doesn't typically need variable substitution unless schema refers to it, but good for URL context.
-        const mockData = await generateMockData(schema || "No explicit schema", activeRequest.url, activeRequest.method);
-        
-        const endTime = Date.now();
-        const mockRes: ApiResponse = {
-          status: 200,
-          statusText: 'OK',
-          data: mockData,
-          size: JSON.stringify(mockData).length + ' B',
-          time: endTime - startTime,
-          headers: { 'Content-Type': 'application/json', 'X-Powered-By': 'Gemini AI' },
-          isMock: true
-        };
-        setResponse(mockRes);
-        addToHistory(activeRequest, 200);
+      const finalUrl = constructUrl(activeRequest);
+      const headers: Record<string, string> = {};
+      
+      activeRequest.headers.filter(h => h.enabled && h.key).forEach(h => {
+          headers[h.key] = substituteVariables(h.value);
+      });
 
-      } else {
-        const finalUrl = constructUrl(activeRequest);
-        const headers: Record<string, string> = {};
-        
-        // 1. Standard Headers
-        activeRequest.headers.filter(h => h.enabled && h.key).forEach(h => {
-            headers[h.key] = substituteVariables(h.value);
-        });
-
-        // 2. Auth Injection
-        const auth = activeRequest.auth;
-        if (auth.type === 'bearer' && auth.bearerToken) {
-            headers['Authorization'] = `Bearer ${substituteVariables(auth.bearerToken)}`;
-        } else if (auth.type === 'basic') {
-            const user = substituteVariables(auth.basicUsername || '');
-            const pass = substituteVariables(auth.basicPassword || '');
-            headers['Authorization'] = `Basic ${btoa(user + ':' + pass)}`;
-        } else if (auth.type === 'apikey' && auth.apiKeyLocation === 'header' && auth.apiKeyKey) {
-            headers[substituteVariables(auth.apiKeyKey)] = substituteVariables(auth.apiKeyValue);
-        }
-
-        const options: RequestInit = {
-          method: activeRequest.method,
-          headers: headers,
-        };
-
-        if (activeRequest.method !== HttpMethod.GET && activeRequest.method !== HttpMethod.DELETE) {
-           const bodyContent = substituteVariables(activeRequest.bodyContent);
-           if (activeRequest.bodyType === 'json') {
-             try {
-                JSON.parse(bodyContent); 
-                headers['Content-Type'] = 'application/json';
-                options.body = bodyContent;
-             } catch {
-                options.body = bodyContent;
-             }
-          } else {
-             options.body = bodyContent;
-          }
-        }
-
-        const res = await fetch(finalUrl, options);
-        const endTime = Date.now();
-        
-        const contentType = res.headers.get('content-type');
-        let data;
-        if (contentType && contentType.includes('application/json')) {
-            data = await res.json();
-        } else {
-            data = await res.text();
-        }
-
-        const resHeaders: Record<string, string> = {};
-        res.headers.forEach((v, k) => resHeaders[k] = v);
-
-        setResponse({
-            status: res.status,
-            statusText: res.statusText,
-            data,
-            size: (typeof data === 'string' ? data.length : JSON.stringify(data).length) + ' B',
-            time: endTime - startTime,
-            headers: resHeaders
-        });
-
-        addToHistory(activeRequest, res.status);
+      const auth = activeRequest.auth;
+      if (auth.type === 'bearer' && auth.bearerToken) {
+          headers['Authorization'] = `Bearer ${substituteVariables(auth.bearerToken)}`;
+      } else if (auth.type === 'basic') {
+          const user = substituteVariables(auth.basicUsername || '');
+          const pass = substituteVariables(auth.basicPassword || '');
+          headers['Authorization'] = `Basic ${btoa(user + ':' + pass)}`;
+      } else if (auth.type === 'apikey' && auth.apiKeyLocation === 'header' && auth.apiKeyKey) {
+          headers[substituteVariables(auth.apiKeyKey)] = substituteVariables(auth.apiKeyValue);
       }
+
+      const options: RequestInit = {
+        method: activeRequest.method,
+        headers: headers,
+      };
+
+      if (activeRequest.method !== HttpMethod.GET && activeRequest.method !== HttpMethod.DELETE) {
+          const bodyContent = substituteVariables(activeRequest.bodyContent);
+          if (activeRequest.bodyType === 'json') {
+            try {
+              JSON.parse(bodyContent); 
+              headers['Content-Type'] = 'application/json';
+              options.body = bodyContent;
+            } catch {
+              options.body = bodyContent;
+            }
+        } else {
+            options.body = bodyContent;
+        }
+      }
+
+      const res = await fetch(finalUrl, options);
+      const endTime = Date.now();
+      
+      const contentType = res.headers.get('content-type');
+      let data;
+      if (contentType && contentType.includes('application/json')) {
+          data = await res.json();
+      } else {
+          data = await res.text();
+      }
+
+      const resHeaders: Record<string, string> = {};
+      res.headers.forEach((v, k) => resHeaders[k] = v);
+
+      setResponse({
+          status: res.status,
+          statusText: res.statusText,
+          data,
+          size: (typeof data === 'string' ? data.length : JSON.stringify(data).length) + ' B',
+          time: endTime - startTime,
+          headers: resHeaders
+      });
+
+      addToHistory(activeRequest, res.status);
 
     } catch (error: any) {
         setResponse({
@@ -427,14 +448,12 @@ const App: React.FC = () => {
     }
   };
 
-  // Filter requests for tabs
-  const openTabs = openRequestIds
-    .map(id => requests[id])
-    .filter(Boolean);
+  const openTabs = openRequestIds.map(id => requests[id]).filter(Boolean);
 
   return (
-    <div className="flex w-full h-screen overflow-hidden text-base">
+    <div className="flex w-full h-screen overflow-hidden text-base" ref={appContainerRef}>
       <Sidebar 
+        width={sidebarWidth}
         history={history} 
         collections={collections}
         activeId={activeRequestId}
@@ -449,6 +468,12 @@ const App: React.FC = () => {
         onOpenImport={() => setIsImportDialogOpen(true)}
       />
       
+      {/* Sidebar Resizer */}
+      <div 
+        className="w-1 cursor-col-resize hover:bg-primary/50 bg-border transition-colors z-10"
+        onMouseDown={() => { isResizingSidebar.current = true; document.body.style.cursor = 'col-resize'; }}
+      />
+      
       <main className="flex-1 flex flex-col min-w-0 bg-background">
         <TabBar 
             tabs={openTabs}
@@ -457,19 +482,23 @@ const App: React.FC = () => {
             onClose={handleCloseTab}
             onNew={handleNewRequest}
         />
-        <div className="flex-1 grid grid-rows-[60%_40%] lg:grid-rows-1 lg:grid-cols-2 overflow-hidden">
-          <div className="h-full border-b lg:border-b-0 lg:border-r border-border min-h-0">
-             <RequestPanel 
-               request={activeRequest} 
-               onUpdateRequest={handleUpdateRequest}
-               onSend={() => executeRequest(false)}
-               onMockSend={() => executeRequest(true)}
-               onSave={() => setIsSaveDialogOpen(true)}
-               isLoading={isLoading}
-             />
-          </div>
+        <div className="flex-1 flex overflow-hidden relative">
+          <RequestPanel 
+             style={{ width: `${requestPanelPercent}%` }}
+             request={activeRequest} 
+             onUpdateRequest={handleUpdateRequest}
+             onSend={() => executeRequest()}
+             onSave={() => setIsSaveDialogOpen(true)}
+             isLoading={isLoading}
+          />
+          
+          {/* Panel Resizer */}
+          <div 
+            className="w-1 cursor-col-resize hover:bg-primary/50 bg-border transition-colors z-10"
+            onMouseDown={() => { isResizingPanel.current = true; document.body.style.cursor = 'col-resize'; }}
+          />
 
-          <div className="h-full min-h-0">
+          <div style={{ flex: 1, minWidth: 0 }}>
              <ResponsePanel response={response} isLoading={isLoading} />
           </div>
         </div>

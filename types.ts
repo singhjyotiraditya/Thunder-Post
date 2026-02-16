@@ -32,7 +32,7 @@ export interface ApiRequest {
   url: string;
   params: KeyValueItem[];
   headers: KeyValueItem[];
-  bodyType: 'json' | 'text' | 'schema';
+  bodyType: 'json' | 'text';
   bodyContent: string;
   collectionId?: string;
   auth: AuthConfig;
@@ -58,10 +58,9 @@ export interface ApiResponse {
   size: string;
   time: number;
   headers: Record<string, string>;
-  isMock?: boolean;
 }
 
-export type TabType = 'params' | 'headers' | 'body' | 'schema' | 'auth';
+export type TabType = 'params' | 'headers' | 'body' | 'auth';
 
 export interface HistoryItem {
   id: string;
